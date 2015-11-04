@@ -1,0 +1,91 @@
+---
+title: "Machine Learning Course Project"
+author: "Andrew Reynolds"
+date: "October 23, 2015"
+output: html_document
+---
+
+## Loading and preprocessing the data
+
+I'll be needing the following packages. The lectures tell us that random forests are among the most accurate methods of prediction, especially for nonlinear data. I do expect the data to be nonlinear because they're coming from motion sensors attached to people who are lifting weights. [See the documentation](http://groupware.les.inf.puc-rio.br/har).
+
+```{r}
+library(caret)
+library(randomForest)
+```
+
+Next I download the training and test sets.
+
+```{r eval = FALSE}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "train.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "test.csv")
+```
+
+Time to read the data. I read in a [stack exchange thread](http://stats.stackexchange.com/questions/37370/random-forest-computing-time-in-r) that random forests are slowed dramatically by factor features with more than a few levels. So I make sure I'm not unnecessarily reading in factors.
+
+```{r}
+training <- read.csv("train.csv", na.strings=c("NA",""), stringsAsFactors = FALSE)
+test <- read.csv("test.csv", na.strings=c("NA",""), stringsAsFactors = FALSE)
+training$classe <- as.factor(training$classe)
+```
+
+I ignore variables that are obviously irrelevant, such as id numbers, user names, etc.
+
+```{r}
+head(names(training), 7)
+training <- training[-(1:7)]
+test <- test[-(1:7)]
+```
+
+Each variable in the training set has either zero missing values, or 19216 of them (that's 98% of the observations!).
+
+```{r}
+sum(!(colSums(is.na(training)) %in% c(0, 19216)))
+```
+
+I therefore elect to dismiss the variables with missing values.
+
+```{r}
+good <- colSums(is.na(training)) == 0
+training <- training[good]
+test <- test[good]
+```
+
+## Prediction model with cross validation
+
+First I want to create training and test sets from the given training set.
+
+```{r}
+set.seed(1000)
+intrain <- createDataPartition(y=training$classe,p=0.7,list=FALSE)
+smalltrain <- training[intrain,]
+bigtest <- training[-intrain,]
+dim(smalltrain)
+```
+
+From the [caret tutorial](http://www.edii.uclm.es/~useR-2013/Tutorials/kuhn/user_caret_2up.pdf) provided in the lecture notes, I learned that 5-fold cross validation is commonly used. Let's try that out.
+
+```{r, cache = TRUE}
+rforest <- train(classe ~ ., data = smalltrain, method = "rf", 
+                    trControl=trainControl(method="cv",number=5))
+```
+
+Let's print the final model and see how we did.
+
+```{r}
+print(rforest$finalModel)
+```
+
+We've achieved an accuracy of `r (3902 + 2641 + 2373 + 2201 + 2521) / 13737`, which is more than satisfactory. According to our final model output, the out of sample error is estimated to be 0.72%. Let's confirm this estimate using the test set we created from the original training set.
+
+```{r}
+1 - mean(predict(rforest, newdata = bigtest) == bigtest$classe)
+```
+
+It appears that the 0.72% estimate is pretty accurate.
+
+Note: This random forest model correctly classifies all 20 of the observations in the original test set.
+
+```{r}
+predict(rforest, newdata = test)
+```
